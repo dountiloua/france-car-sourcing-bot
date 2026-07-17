@@ -7,7 +7,7 @@ This Telegram bot helps users search for car listings on French websites based o
 - **`/start` command**: Greets the user and prompts for a maximum price.
 - **Price-based search**: Users can enter a maximum price in EUR, and the bot will search for matching car listings.
 - **Criteria**: Searches for Gasoline or Hybrid cars, registered from 01/06/2023 to today, with a 'non-accidenté' condition.
-- **Website**: Currently searches on autoscout24.fr.
+- **Websites**: Searches on AutoScout24.fr & Leboncoin.fr simultaneously.
 - **Formatted results**: Returns car listings with details such as model, year, price, fuel type, mileage, location, link, and status.
 
 ## Setup and Installation
@@ -55,7 +55,7 @@ nohup python3 bot.py > bot.log 2>&1 &
 1.  Start a chat with your bot on Telegram.
 2.  Send the `/start` command.
 3.  Enter your desired maximum price in EUR when prompted.
-4.  The bot will return matching car listings from autoscout24.fr.
+4.  The bot will return matching car listings from AutoScout24.fr & Leboncoin.fr.
 
 ## Contributing
 
