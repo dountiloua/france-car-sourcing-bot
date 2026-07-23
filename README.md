@@ -40,12 +40,6 @@
     python3 bot.py
     ```
 
-## Deploy on Railway
-
-1. Fork this repo
-2. Connect to [Railway.app](https://railway.app)
-3. Add environment variable: `TELEGRAM_BOT_TOKEN`
-4. Deploy — bot runs 24/7 automatically
 
 ## Search Platforms
 
@@ -61,4 +55,5 @@ MIT License — Free to use and modify.
 
 ---
 
-**Powered by CARDZSCRAP** 🚗
+**Powered by ALI DOUNTILOU** 🚗
+
