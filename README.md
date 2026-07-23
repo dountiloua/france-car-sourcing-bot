@@ -1,66 +1,64 @@
-# France Car Sourcing Bot
+# 🚗 CARDZSCRAP
 
-This Telegram bot helps users search for car listings on French websites based on their specified maximum price. The bot focuses on gasoline or hybrid cars, registered from June 1, 2023, to the current date, with a 'non-accidenté' (no accidents) condition.
+**France Auto Export Sourcing Agent** — A Telegram bot that instantly generates pre-filtered search links for used cars in France, ready for export.
 
 ## Features
 
-- **`/start` command**: Greets the user and prompts for a maximum price.
-- **Price-based search**: Users can enter a maximum price in EUR, and the bot will search for matching car listings.
-- **Criteria**: Searches for Gasoline or Hybrid cars, registered from 01/06/2023 to today, with a 'non-accidenté' condition.
-- **Websites**: Searches on AutoScout24.fr & Leboncoin.fr simultaneously.
-- **Formatted results**: Returns car listings with details such as model, year, price, fuel type, mileage, location, link, and status.
+- **Instant Results**: Enter a max price and get direct links to matching listings
+- **Multi-Platform**: Searches across AutoScout24.fr, Leboncoin.fr & LaCentrale.fr
+- **Pre-Filtered**: All links come with filters already applied (fuel, year, condition)
+- **Export Ready**: Focused on non-accidenté vehicles suitable for export
+- **Criteria**: Gasoline/Hybrid only, 2023+, non-damaged
 
-## Setup and Installation
+## How It Works
 
-1.  **Clone the repository**:
+1. User sends `/start` to the bot
+2. User enters their maximum budget in EUR
+3. Bot generates direct search links with all filters pre-applied
+4. User clicks links to view all matching listings instantly
+
+## Setup & Installation
+
+1. **Clone the repository**:
     ```bash
     git clone https://github.com/dountiloua/france-car-sourcing-bot.git
     cd france-car-sourcing-bot
     ```
 
-2.  **Create a virtual environment** (recommended):
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    ```
-
-3.  **Install dependencies**:
+2. **Install dependencies**:
     ```bash
     pip install -r requirements.txt
     ```
 
-4.  **Configure your Telegram Bot Token**:
-    Create a `.env` file in the project root with your Telegram bot token:
+3. **Set your Telegram Bot Token**:
+    ```bash
+    export TELEGRAM_BOT_TOKEN=your_token_here
     ```
-    TELEGRAM_BOT_TOKEN=your_token_here
+
+4. **Run the bot**:
+    ```bash
+    python3 bot.py
     ```
-    (You can get your bot token from BotFather on Telegram).
 
-## How to Run
+## Deploy on Railway
 
-To run the bot, execute the `bot.py` script:
+1. Fork this repo
+2. Connect to [Railway.app](https://railway.app)
+3. Add environment variable: `TELEGRAM_BOT_TOKEN`
+4. Deploy — bot runs 24/7 automatically
 
-```bash
-python3 bot.py
-```
+## Search Platforms
 
-For running in the background (e.g., on a server):
-
-```bash
-nohup python3 bot.py > bot.log 2>&1 &
-```
-
-## Usage
-
-1.  Start a chat with your bot on Telegram.
-2.  Send the `/start` command.
-3.  Enter your desired maximum price in EUR when prompted.
-4.  The bot will return matching car listings from AutoScout24.fr & Leboncoin.fr.
-
-## Contributing
-
-Feel free to fork the repository, make improvements, and submit pull requests.
+| Platform | Coverage |
+|----------|----------|
+| AutoScout24.fr | Professional & private sellers |
+| Leboncoin.fr | Private listings & dealers |
+| LaCentrale.fr | Certified dealers |
 
 ## License
 
-This project is open-source and available under the MIT License.
+MIT License — Free to use and modify.
+
+---
+
+**Powered by CARDZSCRAP** 🚗
