@@ -1,12 +1,12 @@
-
 import logging
 import os
 import requests
 from bs4 import BeautifulSoup
-from telegram import Update
+from telegram import Update, InputFile
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from datetime import datetime
 import re
+import tempfile
 
 # Enable logging
 logging.basicConfig(
@@ -22,18 +22,19 @@ if not TELEGRAM_BOT_TOKEN:
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
 }
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send welcome message."""
     await update.message.reply_text(
-        "\U0001f697 Welcome to the France Car Sourcing Bot!\n\n"
+        "🚗 Welcome to the France Car Sourcing Bot!\n\n"
         "Enter your maximum price in EUR to search for available cars:\n\n"
-        "\U0001f50d Searching on: AutoScout24.fr & Leboncoin.fr\n"
-        "\u26fd Fuel: Essence / Hybride only\n"
-        "\U0001f4c5 Year: 2023+\n"
-        "\U0001f6e0\ufe0f Condition: Non-accident\u00e9"
+        "🔍 Searching on: AutoScout24.fr & Leboncoin.fr\n"
+        "⛽ Fuel: Essence / Hybride only\n"
+        "📅 Year: 2023+\n"
+        "🛠️ Condition: Non-accidenté"
     )
 
 
@@ -42,70 +43,122 @@ def search_autoscout24(max_price: int) -> list:
     results = []
     current_year = datetime.now().year
 
-    autoscout_url = (
-        f"https://www.autoscout24.fr/lst?"
-        f"fuel=B%2CH&pricefrom=0&priceto={max_price}"
-        f"&fregfrom=2023&fregto={current_year}"
-        f"&desc=1&size=20&page=1&fc=0&cy=F"
-        f"&damaged_listing=exclude&powertype=kw&sort=age"
-    )
+    # Search multiple pages for better coverage
+    for page in range(1, 3):
+        autoscout_url = (
+            f"https://www.autoscout24.fr/lst?"
+            f"fuel=B%2CH&pricefrom=0&priceto={max_price}"
+            f"&fregfrom=2023&fregto={current_year}"
+            f"&desc=1&size=20&page={page}&fc=0&cy=F"
+            f"&damaged_listing=exclude&powertype=kw&sort=age"
+        )
 
-    try:
-        response = requests.get(autoscout_url, headers=HEADERS, timeout=15)
-        soup = BeautifulSoup(response.content, "html.parser")
-        listings = soup.find_all("article")
+        try:
+            response = requests.get(autoscout_url, headers=HEADERS, timeout=20)
+            if response.status_code != 200:
+                logger.warning(f"AutoScout24 returned status {response.status_code}")
+                continue
 
-        for listing in listings:
-            try:
-                model_tag = listing.find("h2")
-                if not model_tag:
-                    continue
-                model_name = model_tag.text.strip()
+            soup = BeautifulSoup(response.content, "html.parser")
 
-                price_tag = listing.find("p", string=re.compile(r"\u20ac"))
-                if not price_tag:
-                    price_tag = listing.find(class_=re.compile(r"price", re.I))
-                price_text = price_tag.text.strip() if price_tag else "N/A"
+            # Find all listing links - AutoScout24 uses links with /offres/ in href
+            all_links = soup.find_all("a", href=re.compile(r"/offres/[a-z]"))
 
-                data_text = listing.get_text("|", strip=True)
-                year_match = re.search(r'(\d{2}/\d{4})', data_text)
-                year = year_match.group(1).split('/')[-1] if year_match else "N/A"
-                mileage_match = re.search(r'(\d+[\s\d]*)\s*km', data_text)
-                mileage = mileage_match.group(1).strip() + " km" if mileage_match else "N/A"
-                fuel = "Essence" if "essence" in data_text.lower() else ("Hybride" if "hybride" in data_text.lower() or "hybrid" in data_text.lower() else "N/A")
-
-                location_tag = listing.find("span", class_=re.compile(r"SellerInfo_address", re.I))
-                location = location_tag.text.strip() if location_tag else "France"
-
-                link_tag = listing.find("a", href=re.compile(r"/offres/"))
-                link = "https://www.autoscout24.fr" + link_tag["href"] if link_tag else "N/A"
-
-                is_recent = False
+            seen_urls = set()
+            for link_tag in all_links:
                 try:
-                    if year != "N/A" and int(year) >= 2023:
-                        is_recent = True
-                except:
-                    pass
+                    href = link_tag.get("href", "")
+                    if not href or href in seen_urls:
+                        continue
 
-                is_correct_fuel = fuel in ("Essence", "Hybride")
+                    full_link = "https://www.autoscout24.fr" + href if href.startswith("/") else href
+                    seen_urls.add(href)
 
-                if is_recent and is_correct_fuel:
-                    results.append(
-                        f"\U0001f697 {model_name} ({year})\n"
-                        f"\U0001f4b0 Price: {price_text}\n"
-                        f"\u26fd Fuel: {fuel}\n"
-                        f"\U0001f6e3\ufe0f Mileage: {mileage}\n"
-                        f"\U0001f4cd Location: {location}\n"
-                        f"\U0001f517 Link: {link}\n"
-                        f"\U0001f6e0\ufe0f Status: Non-accident\u00e9\n"
-                        f"\U0001f4cc Source: AutoScout24"
-                    )
-            except Exception as e:
-                logger.warning(f"Error parsing AutoScout24 listing: {e}")
-    except Exception as e:
-        logger.error(f"Error accessing AutoScout24: {e}")
+                    # Get the parent article or container
+                    container = link_tag.find_parent("article") or link_tag.find_parent("div", class_=re.compile(r"list"))
+                    if not container:
+                        container = link_tag
 
-    return results
+                    container_text = container.get_text("|", strip=True)
+
+                    # Extract model name from h2 or first significant text
+                    model_tag = container.find("h2") or container.find("a")
+                    model_name = model_tag.text.strip() if model_tag else "Unknown"
+                    # Clean up model name
+                    if len(model_name) > 80:
+                        model_name = model_name[:80]
+
+                    # Extract price
+                    price_match = re.search(r'([\d\s\.]+)\s*€', container_text)
+                    if price_match:
+                        price_text = price_match.group(0).strip()
+                    else:
+                        price_text = "N/A"
+
+                    # Extract year
+                    year_match = re.search(r'(\d{2})/(\d{4})', container_text)
+                    if year_match:
+                        year = year_match.group(2)
+                    else:
+                        year_match2 = re.search(r'(202[3-9]|20[3-9]\d)', container_text)
+                        year = year_match2.group(0) if year_match2 else "N/A"
+
+                    # Extract mileage
+                    mileage_match = re.search(r'([\d\s\.]+)\s*km', container_text)
+                    mileage = mileage_match.group(0).strip() if mileage_match else "N/A"
+
+                    # Determine fuel type
+                    text_lower = container_text.lower()
+                    if "hybride" in text_lower or "hybrid" in text_lower:
+                        fuel = "Hybride"
+                    elif "essence" in text_lower:
+                        fuel = "Essence"
+                    else:
+                        fuel = "Essence"
+
+                    # Extract location
+                    location_tag = container.find("span", class_=re.compile(r"SellerInfo|address|location", re.I))
+                    if location_tag:
+                        location = location_tag.text.strip()
+                    else:
+                        loc_match = re.search(r'(\d{5})\s*([A-Za-zÀ-ÿ\s\-]+)', container_text)
+                        location = f"{loc_match.group(2).strip()} ({loc_match.group(1)})" if loc_match else "France"
+
+                    # Filter: year must be 2023+
+                    is_recent = False
+                    try:
+                        if year != "N/A" and int(year) >= 2023:
+                            is_recent = True
+                    except:
+                        pass
+
+                    if is_recent and model_name != "Unknown":
+                        results.append({
+                            "model": model_name,
+                            "year": year,
+                            "price": price_text,
+                            "fuel": fuel,
+                            "mileage": mileage,
+                            "location": location,
+                            "link": full_link,
+                            "source": "AutoScout24"
+                        })
+                except Exception as e:
+                    logger.warning(f"Error parsing AutoScout24 listing: {e}")
+                    continue
+
+        except Exception as e:
+            logger.error(f"Error accessing AutoScout24 page {page}: {e}")
+
+    # Remove duplicates based on link
+    seen = set()
+    unique_results = []
+    for r in results:
+        if r["link"] not in seen:
+            seen.add(r["link"])
+            unique_results.append(r)
+
+    return unique_results
 
 
 def search_leboncoin(max_price: int) -> list:
@@ -121,50 +174,115 @@ def search_leboncoin(max_price: int) -> list:
     )
 
     try:
-        response = requests.get(leboncoin_url, headers=HEADERS, timeout=15)
+        response = requests.get(leboncoin_url, headers=HEADERS, timeout=20)
         soup = BeautifulSoup(response.content, "html.parser")
 
-        # Try to find listing cards
-        listing_cards = soup.find_all("a", href=re.compile(r"/ad/voitures/"))
+        # Find listing links
+        listing_links = soup.find_all("a", href=re.compile(r"/ad/voitures/\d+"))
 
-        for card in listing_cards:
+        seen_urls = set()
+        for card in listing_links:
             try:
-                title_tag = card.find("p") or card.find("span")
-                model_name = title_tag.text.strip() if title_tag else "N/A"
-                if model_name == "N/A":
-                    continue
-
-                price_tag = card.find(string=re.compile(r"\d+\s*\u20ac"))
-                price_text = price_tag.strip() if price_tag else "N/A"
-
                 href = card.get("href", "")
+                if not href or href in seen_urls:
+                    continue
+                seen_urls.add(href)
+
                 link = f"https://www.leboncoin.fr{href}" if href.startswith("/") else href
 
                 card_text = card.get_text("|", strip=True)
-                year_match = re.search(r'20(2[3-9]|[3-9]\d)', card_text)
+
+                # Extract title/model
+                title_tag = card.find("p") or card.find("span")
+                model_name = title_tag.text.strip() if title_tag else "N/A"
+                if model_name == "N/A" or len(model_name) < 3:
+                    continue
+
+                # Extract price
+                price_match = re.search(r'([\d\s\.]+)\s*€', card_text)
+                price_text = price_match.group(0).strip() if price_match else "N/A"
+
+                # Extract year
+                year_match = re.search(r'(202[3-9]|20[3-9]\d)', card_text)
                 year = year_match.group(0) if year_match else "2023+"
-                mileage_match = re.search(r'(\d+[\s\d]*)\s*km', card_text)
+
+                # Extract mileage
+                mileage_match = re.search(r'([\d\s\.]+)\s*km', card_text)
                 mileage = mileage_match.group(0).strip() if mileage_match else "N/A"
 
-                location_match = re.search(r'(\d{5})', card_text)
-                location = location_match.group(0) if location_match else "France"
+                # Location
+                loc_match = re.search(r'(\d{5})', card_text)
+                location = loc_match.group(0) if loc_match else "France"
 
-                results.append(
-                    f"\U0001f697 {model_name} ({year})\n"
-                    f"\U0001f4b0 Price: {price_text}\n"
-                    f"\u26fd Fuel: Essence\n"
-                    f"\U0001f6e3\ufe0f Mileage: {mileage}\n"
-                    f"\U0001f4cd Location: {location}\n"
-                    f"\U0001f517 Link: {link}\n"
-                    f"\U0001f6e0\ufe0f Status: Non-accident\u00e9\n"
-                    f"\U0001f4cc Source: Leboncoin"
-                )
+                results.append({
+                    "model": model_name,
+                    "year": year,
+                    "price": price_text,
+                    "fuel": "Essence",
+                    "mileage": mileage,
+                    "location": location,
+                    "link": link,
+                    "source": "Leboncoin"
+                })
             except Exception as e:
                 logger.warning(f"Error parsing Leboncoin listing: {e}")
     except Exception as e:
         logger.error(f"Error accessing Leboncoin: {e}")
 
     return results
+
+
+def format_result(car: dict) -> str:
+    """Format a single car result for Telegram."""
+    return (
+        f"🚗 {car['model']} ({car['year']})\n"
+        f"💰 Price: {car['price']}\n"
+        f"⛽ Fuel: {car['fuel']}\n"
+        f"🛣️ Mileage: {car['mileage']}\n"
+        f"📍 Location: {car['location']}\n"
+        f"🔗 Link: {car['link']}\n"
+        f"🛠️ Status: Non-accidenté\n"
+        f"📌 Source: {car['source']}"
+    )
+
+
+def generate_pdf_report(results: list, max_price: int) -> str:
+    """Generate a text report file with all results."""
+    report_lines = []
+    report_lines.append("=" * 60)
+    report_lines.append("  FRANCE CAR SOURCING REPORT")
+    report_lines.append(f"  Date: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    report_lines.append(f"  Max Price: {max_price:,}€")
+    report_lines.append(f"  Criteria: Essence/Hybride | 2023+ | Non-accidenté")
+    report_lines.append(f"  Sources: AutoScout24.fr & Leboncoin.fr")
+    report_lines.append(f"  Total Results: {len(results)}")
+    report_lines.append("=" * 60)
+    report_lines.append("")
+
+    for i, car in enumerate(results, 1):
+        report_lines.append(f"--- Car #{i} ---")
+        report_lines.append(f"Model:    {car['model']} ({car['year']})")
+        report_lines.append(f"Price:    {car['price']}")
+        report_lines.append(f"Fuel:     {car['fuel']}")
+        report_lines.append(f"Mileage:  {car['mileage']}")
+        report_lines.append(f"Location: {car['location']}")
+        report_lines.append(f"Link:     {car['link']}")
+        report_lines.append(f"Status:   Non-accidenté")
+        report_lines.append(f"Source:   {car['source']}")
+        report_lines.append("")
+
+    report_lines.append("=" * 60)
+    report_lines.append("  Generated by France Car Sourcing Bot")
+    report_lines.append("=" * 60)
+
+    # Save to temp file
+    tmp_file = tempfile.NamedTemporaryFile(
+        mode='w', suffix='.txt', prefix='car_report_',
+        delete=False, encoding='utf-8'
+    )
+    tmp_file.write("\n".join(report_lines))
+    tmp_file.close()
+    return tmp_file.name
 
 
 async def search_cars(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -178,13 +296,13 @@ async def search_cars(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     max_price = int(price_match.group())
     if max_price < 1000 or max_price > 100000:
-        await update.message.reply_text("Please enter a price between 1,000\u20ac and 100,000\u20ac.")
+        await update.message.reply_text("Please enter a price between 1,000€ and 100,000€.")
         return
 
     await update.message.reply_text(
-        f"\U0001f50d Searching for cars under {max_price:,}\u20ac...\n"
-        f"\u26fd Essence/Hybride | \U0001f4c5 2023+ | \U0001f6e0\ufe0f Non-accident\u00e9\n"
-        f"\U0001f310 Searching AutoScout24.fr & Leboncoin.fr...\n\n"
+        f"🔍 Searching for cars under {max_price:,}€...\n"
+        f"⛽ Essence/Hybride | 📅 2023+ | 🛠️ Non-accidenté\n"
+        f"🌐 Searching AutoScout24.fr & Leboncoin.fr...\n\n"
         f"Please wait..."
     )
 
@@ -194,25 +312,38 @@ async def search_cars(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     results.extend(search_leboncoin(max_price))
 
     if results:
+        # Send individual results (max 15)
         count = min(len(results), 15)
-        for result in results[:count]:
-            await update.message.reply_text(result)
+        for car in results[:count]:
+            await update.message.reply_text(format_result(car))
+
         if len(results) > count:
             await update.message.reply_text(
-                f"\n\U0001f4ca Found {len(results)} total results. Showing top {count}.\n"
-                f"Refine your search with a lower price for more specific results."
+                f"\n📊 Found {len(results)} total results. Showing top {count}."
             )
         else:
-            await update.message.reply_text(f"\n\U0001f4ca Found {len(results)} matching car(s).")
+            await update.message.reply_text(f"\n📊 Found {len(results)} matching car(s).")
+
+        # Generate and send report file
+        try:
+            report_path = generate_pdf_report(results, max_price)
+            with open(report_path, 'rb') as f:
+                await update.message.reply_document(
+                    document=InputFile(f, filename=f"car_report_{max_price}EUR_{datetime.now().strftime('%Y%m%d')}.txt"),
+                    caption="📄 Full report with all listings and links attached above."
+                )
+            os.unlink(report_path)
+        except Exception as e:
+            logger.error(f"Error generating report: {e}")
     else:
         await update.message.reply_text(
-            "\u274c No matching cars found with the given criteria.\n\n"
+            "❌ No matching cars found with the given criteria.\n\n"
             "This can happen because:\n"
-            "\u2022 Websites may block automated access\n"
-            "\u2022 No listings match at this price point\n\n"
-            "\U0001f4a1 Try a higher price or check manually:\n"
-            "\u2022 https://www.autoscout24.fr\n"
-            "\u2022 https://www.leboncoin.fr/c/voitures"
+            "• Websites may block automated access\n"
+            "• No listings match at this price point\n\n"
+            "💡 Try a higher price or check manually:\n"
+            "• https://www.autoscout24.fr\n"
+            "• https://www.leboncoin.fr/c/voitures"
         )
 
 
